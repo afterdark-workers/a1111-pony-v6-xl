@@ -1,6 +1,6 @@
 # Pony Diffusion V6 XL — RunPod Serverless worker (AUTOMATIC1111)
 
-A ready-to-build [RunPod Serverless](https://runpod.io?ref=qpguwapm) worker for **Pony Diffusion V6 XL** by PurpleSmartAI, an SDXL finetune for anime, cartoon, furry and pony art, running on [AUTOMATIC1111 Stable Diffusion WebUI](https://github.com/AUTOMATIC1111/stable-diffusion-webui) v1.10.1 — the same settings as AUTOMATIC1111's own API: prompt weights like `(word:1.2)`, A1111 sampler names, clip skip. There is no web page: you use it from [Cobalt Pear](https://cobaltpear.github.io/) or any API call.
+A ready-to-build [RunPod Serverless](https://runpod.io?ref=qpguwapm) worker for **[Pony Diffusion V6 XL](https://civitai.com/models/257749?modelVersionId=290640)** by PurpleSmartAI, an SDXL finetune for anime, cartoon, furry and pony art, running on [AUTOMATIC1111 Stable Diffusion WebUI](https://github.com/AUTOMATIC1111/stable-diffusion-webui) v1.10.1 — the same settings as AUTOMATIC1111's own API: prompt weights like `(word:1.2)`, A1111 sampler names, clip skip. There is no web page: you use it from [Cobalt Pear](https://cobaltpear.github.io/) or any API call.
 
 Models are baked into the image, so a cold start does not re-download anything.
 
@@ -10,7 +10,7 @@ Models are baked into the image, so a cold start does not re-download anything.
 
 | File | Source | Size |
 |---|---|---|
-| `models/Stable-diffusion/pony_diffusion_v6_xl.safetensors` | Civitai 257749 / version 290640 (fp16 pruned) | 6.8 GB |
+| `models/Stable-diffusion/pony_diffusion_v6_xl.safetensors` | [Civitai 257749 / version 290640](https://civitai.com/models/257749?modelVersionId=290640) (fp16 pruned) | 6.8 GB |
 
 Just the model as its creator released it — no LoRAs, no extensions, no upscalers. The VAE is built into the checkpoint. The file is checked by SHA-256 at build time. The webui runs API-only (no browser UI) with PyTorch for CUDA 12.8, so every RunPod GPU works.
 
