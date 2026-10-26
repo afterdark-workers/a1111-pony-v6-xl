@@ -59,6 +59,8 @@ def fetch_remote_loras(items):
     """Download missing LoRAs only. Returns (error, names of LoRAs that don't look made for SDXL)."""
     if not isinstance(items, list):
         return "'remote_loras' must be a list", []
+    if items and REMOTE_LORA_MAX == 0:
+        return "this worker takes only LoRAs built into it (REMOTE_LORA_MAX is 0)", []
     if len(items) > REMOTE_LORA_MAX:
         return (f"this worker takes at most {REMOTE_LORA_MAX} LoRAs per picture — for more, set REMOTE_LORA_MAX "
                 "in the endpoint's environment variables (RunPod → your endpoint → Manage → Edit Endpoint)"), []
@@ -102,7 +104,8 @@ def fetch_remote_loras(items):
 
 
 # LoRAs built into the worker — the Dockerfile's LORAS line ("<Civitai or Hugging Face link> [strength] …") is downloaded
-# at build time by `handler.py --bake-loras` and put on every picture, before the request's own LoRAs.
+# at build time by `handler.py --bake-loras`. A request picks which ones it uses (input.baked_loras, see pick_baked);
+# without that every one is used, before the request's own LoRAs.
 BAKED_LIST = "/baked_loras.json"
 NUMBER = re.compile(r"-?\d+(\.\d+)?")
 
@@ -138,7 +141,7 @@ def lora_source(link):
             url += ("&" if "?" in url else "?") + "token=" + token
         return url, (f.get("hashes") or {}).get("SHA256", "").lower() or None, {}
     if host == "huggingface.co":
-        hdr = {"Authorization": "Bearer " + os.environ["HF_TOKEN"]} if os.environ.get("HF_TOKEN") else {}
+        hdr = {"Authorization": "Bearer " + setting("HF_TOKEN")} if setting("HF_TOKEN") else {}
         p = u.path.strip("/").split("/")
         if len(p) > 4 and p[2] in ("blob", "resolve"):
             return f"https://huggingface.co/{p[0]}/{p[1]}/resolve/{'/'.join(p[3:])}", None, hdr
@@ -175,6 +178,7 @@ def bake_loras(spec, lora_dir, after=None):
                     f.write(chunk)
         if digest and h.hexdigest() != digest:
             raise ValueError(f"{it['link']}: sha256 mismatch")
+        it["sha256"] = h.hexdigest()
         if after:
             after(dest)
         print(f"LoRA {i + 1}/{len(items)} built in: {it['link']} × {it['strength']:g} ({os.path.getsize(dest) >> 20} MB)")
@@ -188,6 +192,26 @@ def baked_loras():
             return json.load(f)
     except (OSError, ValueError):
         return []
+
+
+def pick_baked(baked, chosen):
+    """input.baked_loras = [{"link", "strength"}] picks the built-in LoRAs for this picture ([] = none);
+    without it every built-in LoRA is used at its LORAS strength. Returns (LoRAs, error)."""
+    if chosen is None:
+        return baked, None
+    if not isinstance(chosen, list):
+        return [], "'baked_loras' must be a list"
+    out = []
+    for c in chosen:
+        link = str((c or {}).get("link", "")).rstrip("/") if isinstance(c, dict) else ""
+        b = next((b for b in baked if b["link"].rstrip("/") == link), None)
+        if not b:
+            return [], f"LoRA {link or c} is not built into this worker — add it to the LORAS line and build the worker again"
+        try:
+            out.append({**b, "strength": float(c.get("strength", b["strength"]))})
+        except (TypeError, ValueError):
+            return [], f"invalid strength for LoRA {link}"
+    return out, None
 
 
 if "--bake-loras" in sys.argv:  # Dockerfile, at build time
@@ -209,6 +233,9 @@ def handler(job):
     if not inp.get("prompt"):
         return {"error": "input.prompt is required"}
     loras, odd = inp.pop("remote_loras", None) or [], []
+    baked, err = pick_baked(BAKED, inp.pop("baked_loras", None))
+    if err:
+        return {"error": err}
     if loras:
         err, odd = fetch_remote_loras(loras)
         if err:
@@ -217,7 +244,7 @@ def handler(job):
     wait_ready()
     if loras:
         requests.post(API + "/sdapi/v1/refresh-loras", timeout=60)  # the webui lists LoRA files once; new ones need this
-    inp["prompt"] += "".join(f" <lora:{l['name'][:-12]}:{float(l.get('strength', 1)):g}>" for l in BAKED + loras)
+    inp["prompt"] += "".join(f" <lora:{l['name'][:-12]}:{float(l.get('strength', 1)):g}>" for l in baked + loras)
     r = requests.post(API + "/sdapi/v1/txt2img", json=inp, timeout=900)
     if not r.ok:
         return {"error": f"txt2img {r.status_code}: {r.text[:500]}"}
