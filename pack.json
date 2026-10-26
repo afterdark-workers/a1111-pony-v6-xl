@@ -7,6 +7,7 @@
   "note": "Start the prompt with «score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up,» then describe what you want. 25 steps, Euler a, clip skip 2. No negative needed. A1111 weights like (word:1.2) work.",
   "sizes": [[1024, 1024, "Square"], [832, 1216, "Portrait 2:3"], [1216, 832, "Landscape 3:2"], [896, 1152, "Portrait 3:4"], [1152, 896, "Landscape 4:3"]],
   "size_step": 64,
+  "remote_loras": true,
   "input": {
     "prompt": "",
     "negative_prompt": "",
