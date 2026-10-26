@@ -5,7 +5,8 @@ The webui runs API-only on 127.0.0.1:7860 inside the worker. A job's `input` is 
 and the pictures come back like the ComfyUI worker's: output.images = [{filename, type: "base64", data}].
 Extra LoRAs: input.remote_loras = [{name, url, sha256, strength}] (at most REMOTE_LORA_MAX, default 4) — downloaded once
 into models/Lora and added to the prompt as <lora:name:strength>; a LoRA that doesn't look made for SDXL comes back as
-output.warning. LoRAs in the Dockerfile's LORAS line are built in and go on every picture.
+output.warning. LoRAs in the Dockerfile's LORAS line are built in: input.baked_loras picks which ones a picture uses
+(see pick_baked), and output.built_in lists them all.
 """
 import glob
 import hashlib
@@ -196,22 +197,30 @@ def baked_loras():
 
 def pick_baked(baked, chosen):
     """input.baked_loras = [{"link", "strength"}] picks the built-in LoRAs for this picture ([] = none);
-    without it every built-in LoRA is used at its LORAS strength. Returns (LoRAs, error)."""
+    without it every built-in LoRA is used at its LORAS strength. One that isn't built in (yet) is left out
+    and named in the warning, so a picture sent while the worker builds again still comes out.
+    Returns (LoRAs, links left out, error)."""
     if chosen is None:
-        return baked, None
+        return baked, [], None
     if not isinstance(chosen, list):
-        return [], "'baked_loras' must be a list"
-    out = []
+        return [], [], "'baked_loras' must be a list"
+    out, missing = [], []
     for c in chosen:
         link = str((c or {}).get("link", "")).rstrip("/") if isinstance(c, dict) else ""
         b = next((b for b in baked if b["link"].rstrip("/") == link), None)
         if not b:
-            return [], f"LoRA {link or c} is not built into this worker — add it to the LORAS line and build the worker again"
+            missing.append(link or str(c))
+            continue
         try:
             out.append({**b, "strength": float(c.get("strength", b["strength"]))})
         except (TypeError, ValueError):
-            return [], f"invalid strength for LoRA {link}"
-    return out, None
+            return [], [], f"invalid strength for LoRA {link}"
+    return out, missing, None
+
+
+def not_built(missing):
+    return (f"{len(missing)} LoRA is not built into this worker yet — the picture was made without it "
+            "(the worker is still building, or it is not on the LORAS line): " + ", ".join(missing))
 
 
 if "--bake-loras" in sys.argv:  # Dockerfile, at build time
@@ -233,7 +242,7 @@ def handler(job):
     if not inp.get("prompt"):
         return {"error": "input.prompt is required"}
     loras, odd = inp.pop("remote_loras", None) or [], []
-    baked, err = pick_baked(BAKED, inp.pop("baked_loras", None))
+    baked, not_baked, err = pick_baked(BAKED, inp.pop("baked_loras", None))
     if err:
         return {"error": err}
     if loras:
@@ -250,8 +259,10 @@ def handler(job):
         return {"error": f"txt2img {r.status_code}: {r.text[:500]}"}
     images = r.json().get("images") or []
     out = {"images": [{"filename": f"{job['id']}_{i}.png", "type": "base64", "data": d} for i, d in enumerate(images)]}
-    if odd:
-        out["warning"] = f"{', '.join(odd)} doesn't look made for an SDXL model — it may do nothing"
+    warnings = [odd and f"{', '.join(odd)} doesn't look made for an SDXL model — it may do nothing", not_baked and not_built(not_baked)]
+    if any(warnings):
+        out["warning"] = " · ".join(filter(None, warnings))
+    out["built_in"] = [b["link"] for b in BAKED]  # the app learns which LoRAs this worker has
     return out
 
 
